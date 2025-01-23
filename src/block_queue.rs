@@ -90,4 +90,35 @@ mod tests {
         queue.produce(2).unwrap();
         assert!(queue.is_full());
     }
+
+    #[test]
+    fn test_in_threads() {
+        use std::sync::{Arc, Mutex};
+        use std::thread;
+
+        let queue = Arc::new(Mutex::new(BlockQueue::new(2)));
+        let queue1: Arc<Mutex<BlockQueue<i32>>> = queue.clone();
+        let queue2 = queue.clone();
+
+        let handle1 = thread::spawn(move || {
+            let mut queue = queue1.lock().unwrap();
+            queue.produce(1).unwrap();
+            queue.produce(2).unwrap();
+        });
+
+        let handle2 = thread::spawn(move || {
+            let mut queue = queue2.lock().unwrap();
+            let mut c = 0;
+
+            while c < 2 {
+                if let Ok(item) = queue.consume() {
+                    assert_eq!(item, c + 1);
+                    c += 1;
+                }
+            }
+        });
+
+        handle1.join().unwrap();
+        handle2.join().unwrap();
+    }
 }
