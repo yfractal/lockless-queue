@@ -1,3 +1,1 @@
-mod block_queue;
-
-pub use block_queue::BlockQueue;
+pub mod block_queue;

@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 #[derive(Debug, PartialEq)]
 pub enum QueueError {
     Full,
@@ -52,6 +54,53 @@ impl<T> BlockQueue<T> {
     pub fn is_full(&self) -> bool {
         self.count == self.size
     }
+}
+
+pub struct Reader<T> {
+    queue: Arc<RwLock<BlockQueue<T>>>,
+}
+
+impl<T> Reader<T> {
+    pub fn new(queue: Arc<RwLock<BlockQueue<T>>>) -> Self {
+        Reader { queue }
+    }
+
+    pub fn consume(&self) -> Result<T, QueueError> {
+        let mut queue = self.queue.write().unwrap();
+        queue.consume()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let queue = self.queue.read().unwrap();
+        queue.is_empty()
+    }
+}
+pub struct Writer<T> {
+    queue: Arc<RwLock<BlockQueue<T>>>,
+}
+
+impl<T> Writer<T> {
+    pub fn new(queue: Arc<RwLock<BlockQueue<T>>>) -> Self {
+        Writer { queue }
+    }
+
+    pub fn produce(&self, item: T) -> Result<(), QueueError> {
+        let mut queue = self.queue.write().unwrap();
+        queue.produce(item)
+    }
+
+    pub fn is_full(&self) -> bool {
+        let queue = self.queue.read().unwrap();
+        queue.is_full()
+    }
+}
+
+pub fn block_queue<T>(size: usize) -> (Reader<T>, Writer<T>) {
+    let queue = Arc::new(RwLock::new(BlockQueue::<T>::new(size)));
+    let reader = Reader::new(queue.clone());
+    let writer = Writer::new(queue.clone());
+
+    (reader, writer)
 }
 
 #[cfg(test)]
@@ -121,4 +170,39 @@ mod tests {
         handle1.join().unwrap();
         handle2.join().unwrap();
     }
+
+    #[test]
+    fn test_block_queue() {
+        let (reader, writer) = block_queue(2);
+        assert!(writer.produce(1).is_ok());
+        assert!(reader.consume().is_ok());
+    }
+
+    #[test]
+    fn test_block_queue_in_threads() {
+        use std::thread;
+
+        let (reader, writer) = block_queue(2);
+
+        let handle1 = thread::spawn(move || {
+            writer.produce(1).unwrap();
+            writer.produce(2).unwrap();
+        });
+
+        let handle2 = thread::spawn(move || {
+            let mut c = 0;
+
+            while c < 2 {
+                if let Ok(item) = reader.consume() {
+                    assert_eq!(item, c + 1);
+                    c += 1;
+                }
+            }
+        });
+
+        handle1.join().unwrap();
+        handle2.join().unwrap();
+
+    }
+
 }
